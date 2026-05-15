@@ -6,6 +6,7 @@ import {
   Plus,
   RadioTower,
   Send,
+  Trash2,
   Users
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -29,6 +30,8 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState("");
   const [filter, setFilter] = useState("all");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState("");
+  const [deletingId, setDeletingId] = useState("");
 
   const stats = useMemo(() => {
     const totalResponses = polls.reduce((sum, poll) => sum + poll.responseCount, 0);
@@ -74,6 +77,24 @@ export default function DashboardPage() {
     await navigator.clipboard.writeText(publicPollLink(publicId));
     setCopiedId(publicId);
     window.setTimeout(() => setCopiedId(""), 1600);
+  }
+
+  async function deletePoll(pollId) {
+    setDeletingId(pollId);
+    setError("");
+
+    try {
+      await request(`/polls/${pollId}`, {
+        method: "DELETE",
+        token
+      });
+      setPolls((currentPolls) => currentPolls.filter((poll) => poll.id !== pollId));
+      setConfirmingDeleteId("");
+    } catch (apiError) {
+      setError(apiError.message);
+    } finally {
+      setDeletingId("");
+    }
   }
 
   return (
@@ -199,7 +220,40 @@ export default function DashboardPage() {
                   <Clipboard size={17} />
                   <span>{copiedId === poll.publicId ? "Copied" : "Copy link"}</span>
                 </button>
+                <button
+                  className="button button-danger"
+                  type="button"
+                  onClick={() => setConfirmingDeleteId(poll.id)}
+                  disabled={deletingId === poll.id}
+                >
+                  <Trash2 size={17} />
+                  <span>Delete</span>
+                </button>
               </div>
+              {confirmingDeleteId === poll.id && (
+                <div className="delete-confirm" role="group" aria-label={`Delete ${poll.title}`}>
+                  <span>Delete this poll and its responses?</span>
+                  <div>
+                    <button
+                      className="button button-quiet"
+                      type="button"
+                      onClick={() => setConfirmingDeleteId("")}
+                      disabled={deletingId === poll.id}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="button button-danger"
+                      type="button"
+                      onClick={() => deletePoll(poll.id)}
+                      disabled={deletingId === poll.id}
+                    >
+                      <Trash2 size={16} />
+                      <span>{deletingId === poll.id ? "Deleting..." : "Delete poll"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.article>
           ))}
           </div>

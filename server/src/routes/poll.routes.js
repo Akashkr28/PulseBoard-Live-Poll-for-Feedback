@@ -172,4 +172,20 @@ router.patch(
   })
 );
 
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const poll = await findOwnedPoll(req);
+
+    await Response.deleteMany({ poll: poll._id });
+    await poll.deleteOne();
+
+    req.io.to(`poll:${poll.publicId}`).emit("poll:deleted", {
+      publicId: poll.publicId
+    });
+
+    res.json({ message: "Poll deleted." });
+  })
+);
+
 export default router;
