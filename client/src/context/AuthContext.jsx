@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AuthContext } from "./AuthContextValue.js";
-import { request } from "../lib/api.js";
-
-const TOKEN_KEY = "pulseboard_token";
+import { clearCsrfToken, request } from "../lib/api.js";
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY));
   const [user, setUser] = useState(null);
   const [booting, setBooting] = useState(true);
 
@@ -13,18 +10,11 @@ export function AuthProvider({ children }) {
     let cancelled = false;
 
     async function loadUser() {
-      if (!token) {
-        setBooting(false);
-        return;
-      }
-
       try {
-        const data = await request("/auth/me", { token });
+        const data = await request("/auth/me");
         if (!cancelled) setUser(data.user);
       } catch {
-        localStorage.removeItem(TOKEN_KEY);
         if (!cancelled) {
-          setToken(null);
           setUser(null);
         }
       } finally {
@@ -36,15 +26,13 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, []);
 
   async function login(values) {
     const data = await request("/auth/login", {
       method: "POST",
       body: values
     });
-    localStorage.setItem(TOKEN_KEY, data.token);
-    setToken(data.token);
     setUser(data.user);
     return data.user;
   }
@@ -54,28 +42,29 @@ export function AuthProvider({ children }) {
       method: "POST",
       body: values
     });
-    localStorage.setItem(TOKEN_KEY, data.token);
-    setToken(data.token);
     setUser(data.user);
     return data.user;
   }
 
-  function logout() {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
+  async function logout() {
+    try {
+      await request("/auth/logout", { method: "POST" });
+    } finally {
+      clearCsrfToken();
+    }
+
     setUser(null);
   }
 
   const value = useMemo(
     () => ({
       user,
-      token,
       booting,
       login,
       register,
       logout
     }),
-    [user, token, booting]
+    [user, booting]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

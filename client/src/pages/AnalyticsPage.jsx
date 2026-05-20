@@ -1,23 +1,16 @@
-import { ArrowLeft, Clipboard, ExternalLink, RadioTower, Send } from "lucide-react";
+import { ArrowLeft, Clipboard, ExternalLink, Pencil, RadioTower, Send } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import ResultSummary from "../components/ResultSummary.jsx";
 import StatusPill from "../components/StatusPill.jsx";
-import { useAuth } from "../context/useAuth.js";
+import { copyToClipboard } from "../lib/clipboard.js";
+import { formatDate } from "../lib/dates.js";
 import { publicPollLink, request } from "../lib/api.js";
-import { createSocket } from "../lib/socket.js";
-
-function formatDate(value) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
-}
+import { createDebouncedHandler, createSocket } from "../lib/socket.js";
 
 export default function AnalyticsPage() {
   const { pollId } = useParams();
-  const { token } = useAuth();
   const [poll, setPoll] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +23,7 @@ export default function AnalyticsPage() {
 
     async function loadAnalytics() {
       try {
-        const data = await request(`/polls/${pollId}/analytics`, { token });
+        const data = await request(`/polls/${pollId}/analytics`);
         if (active) {
           setPoll(data.poll);
           setAnalytics(data.analytics);
@@ -46,14 +39,13 @@ export default function AnalyticsPage() {
     return () => {
       active = false;
     };
-  }, [pollId, token]);
+  }, [pollId]);
 
   useEffect(() => {
     if (!poll?.publicId) return undefined;
 
-    const socket = createSocket();
-    socket.emit("poll:join", poll.publicId);
-    socket.on("poll:analytics", (event) => {
+    const socket = createSocket({ room: poll.publicId });
+    const analyticsHandler = createDebouncedHandler((event) => {
       if (event.publicId === poll.publicId) {
         setAnalytics(event.analytics);
         setPoll((current) =>
@@ -61,6 +53,7 @@ export default function AnalyticsPage() {
         );
       }
     });
+    socket.on("poll:analytics", analyticsHandler.handle);
     socket.on("poll:published", (event) => {
       if (event.publicId === poll.publicId) {
         setAnalytics(event.analytics);
@@ -76,15 +69,26 @@ export default function AnalyticsPage() {
         );
       }
     });
+    socket.on("poll:updated", (event) => {
+      if (event.publicId === poll.publicId) {
+        setPoll(event.poll);
+      }
+    });
+    socket.on("poll:deleted", (event) => {
+      if (event.publicId === poll.publicId) {
+        setError("This poll was deleted.");
+      }
+    });
 
     return () => {
+      analyticsHandler.cancel();
       socket.emit("poll:leave", poll.publicId);
       socket.disconnect();
     };
   }, [poll?.publicId]);
 
   async function copyShareLink() {
-    await navigator.clipboard.writeText(publicPollLink(poll.publicId));
+    await copyToClipboard(publicPollLink(poll.publicId));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   }
@@ -95,8 +99,7 @@ export default function AnalyticsPage() {
 
     try {
       const data = await request(`/polls/${pollId}/publish`, {
-        method: "PATCH",
-        token
+        method: "PATCH"
       });
       setPoll(data.poll);
       setAnalytics(data.analytics);
@@ -148,6 +151,12 @@ export default function AnalyticsPage() {
             <Clipboard size={18} />
             <span>{copied ? "Copied" : "Copy link"}</span>
           </button>
+          {!poll.isPublished && (
+            <Link className="button button-secondary" to={`/polls/${poll.id}/edit`}>
+              <Pencil size={18} />
+              <span>Edit poll</span>
+            </Link>
+          )}
           <button
             className="button"
             type="button"

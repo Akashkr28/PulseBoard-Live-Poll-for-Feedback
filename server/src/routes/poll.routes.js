@@ -4,6 +4,7 @@ import { Poll } from "../models/Poll.js";
 import { Response } from "../models/Response.js";
 import { buildPollAnalytics } from "../utils/analytics.js";
 import { asyncHandler, httpError } from "../utils/http.js";
+import { parseBody, pollCreateSchema, pollUpdateSchema } from "../utils/validation.js";
 
 const router = express.Router();
 
@@ -100,30 +101,15 @@ router.get(
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const title = String(req.body.title || "").trim();
-    const description = String(req.body.description || "").trim();
-    const responseMode = req.body.responseMode || "anonymous";
-    const expiresAt = new Date(req.body.expiresAt);
-
-    if (!title) {
-      throw httpError(422, "Poll title is required.");
-    }
-
-    if (!["anonymous", "authenticated"].includes(responseMode)) {
-      throw httpError(422, "Choose anonymous or authenticated responses.");
-    }
-
-    if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
-      throw httpError(422, "Expiry time must be in the future.");
-    }
+    const payload = parseBody(pollCreateSchema, req.body);
 
     const poll = await Poll.create({
       owner: req.user._id,
-      title,
-      description,
-      responseMode,
-      expiresAt,
-      questions: normalizeQuestions(req.body.questions)
+      title: payload.title,
+      description: payload.description,
+      responseMode: payload.responseMode,
+      expiresAt: payload.expiresAt,
+      questions: normalizeQuestions(payload.questions)
     });
 
     res.status(201).json({ poll: serializePoll(poll) });
@@ -145,6 +131,42 @@ router.get(
     const poll = await findOwnedPoll(req);
     const analytics = await buildPollAnalytics(poll);
     res.json({ poll: serializePoll(poll, analytics.totalResponses), analytics });
+  })
+);
+
+router.patch(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const poll = await findOwnedPoll(req);
+    const payload = parseBody(pollUpdateSchema, req.body);
+    const responseCount = await Response.countDocuments({ poll: poll._id });
+
+    if (poll.isPublished) {
+      throw httpError(409, "Published polls cannot be edited.");
+    }
+
+    if (payload.questions && responseCount > 0) {
+      throw httpError(409, "Questions can only be edited before responses arrive.");
+    }
+
+    for (const field of ["title", "description", "responseMode", "expiresAt"]) {
+      if (payload[field] !== undefined) {
+        poll[field] = payload[field];
+      }
+    }
+
+    if (payload.questions) {
+      poll.questions = normalizeQuestions(payload.questions);
+    }
+
+    await poll.save();
+
+    req.io.to(`poll:${poll.publicId}`).emit("poll:updated", {
+      publicId: poll.publicId,
+      poll: serializePoll(poll, responseCount)
+    });
+
+    res.json({ poll: serializePoll(poll, responseCount) });
   })
 );
 

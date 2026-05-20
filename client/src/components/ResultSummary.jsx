@@ -11,14 +11,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-
-function formatDate(value) {
-  if (!value) return "Not yet";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
-}
+import { formatDate } from "../lib/dates.js";
 
 export default function ResultSummary({ analytics }) {
   if (!analytics) return null;

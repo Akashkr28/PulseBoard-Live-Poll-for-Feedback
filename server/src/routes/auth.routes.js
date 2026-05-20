@@ -2,8 +2,15 @@ import bcrypt from "bcryptjs";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { requireAuth } from "../middleware/auth.js";
+import { issueCsrfToken } from "../middleware/csrf.js";
 import { User } from "../models/User.js";
+import {
+  clearCsrfCookie,
+  clearSessionCookie,
+  setSessionCookie
+} from "../utils/cookies.js";
 import { asyncHandler, httpError } from "../utils/http.js";
+import { loginSchema, parseBody, registerSchema } from "../utils/validation.js";
 
 const router = express.Router();
 
@@ -18,24 +25,12 @@ function signToken(user) {
   );
 }
 
-function normalizeEmail(email = "") {
-  return email.trim().toLowerCase();
-}
+router.get("/csrf", issueCsrfToken);
 
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
-    const name = String(req.body.name || "").trim();
-    const email = normalizeEmail(req.body.email);
-    const password = String(req.body.password || "");
-
-    if (!name || !email || !password) {
-      throw httpError(422, "Name, email and password are required.");
-    }
-
-    if (password.length < 6) {
-      throw httpError(422, "Password must be at least 6 characters.");
-    }
+    const { name, password, email } = parseBody(registerSchema, req.body);
 
     const existing = await User.findOne({ email });
     if (existing) {
@@ -44,10 +39,10 @@ router.post(
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await User.create({ name, email, passwordHash });
+    setSessionCookie(res, signToken(user));
 
     res.status(201).json({
-      user: user.toSafeJSON(),
-      token: signToken(user)
+      user: user.toSafeJSON()
     });
   })
 );
@@ -55,12 +50,7 @@ router.post(
 router.post(
   "/login",
   asyncHandler(async (req, res) => {
-    const email = normalizeEmail(req.body.email);
-    const password = String(req.body.password || "");
-
-    if (!email || !password) {
-      throw httpError(422, "Email and password are required.");
-    }
+    const { email, password } = parseBody(loginSchema, req.body);
 
     const user = await User.findOne({ email });
     const valid = user ? await bcrypt.compare(password, user.passwordHash) : false;
@@ -69,12 +59,19 @@ router.post(
       throw httpError(401, "Email or password is incorrect.");
     }
 
+    setSessionCookie(res, signToken(user));
+
     res.json({
-      user: user.toSafeJSON(),
-      token: signToken(user)
+      user: user.toSafeJSON()
     });
   })
 );
+
+router.post("/logout", (_req, res) => {
+  clearSessionCookie(res);
+  clearCsrfCookie(res);
+  res.json({ message: "Signed out." });
+});
 
 router.get(
   "/me",

@@ -1,11 +1,10 @@
 import jwt from "jsonwebtoken";
 import { User } from "../models/User.js";
+import { SESSION_COOKIE } from "../utils/cookies.js";
 import { asyncHandler, httpError } from "../utils/http.js";
 
 function getToken(req) {
-  const header = req.headers.authorization || "";
-  if (!header.startsWith("Bearer ")) return null;
-  return header.slice(7);
+  return req.cookies?.[SESSION_COOKIE] || null;
 }
 
 export const optionalAuth = asyncHandler(async (req, _res, next) => {

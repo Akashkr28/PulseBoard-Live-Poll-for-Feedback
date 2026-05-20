@@ -10,23 +10,10 @@ import {
   Trash2
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../context/useAuth.js";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { request } from "../lib/api.js";
-
-function tomorrowInputValue() {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
-}
-
-function currentInputValue() {
-  const date = new Date();
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
-}
+import { currentInputValue, toDateTimeInput, tomorrowInputValue } from "../lib/dates.js";
 
 function blankQuestion() {
   return {
@@ -36,9 +23,18 @@ function blankQuestion() {
   };
 }
 
+function questionFromApi(question) {
+  return {
+    text: question.text,
+    required: question.required,
+    options: question.options.map((option) => ({ label: option.label }))
+  };
+}
+
 export default function CreatePollPage() {
-  const { token } = useAuth();
   const navigate = useNavigate();
+  const { pollId } = useParams();
+  const editing = Boolean(pollId);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -46,9 +42,12 @@ export default function CreatePollPage() {
     expiresAt: tomorrowInputValue(),
     questions: [blankQuestion()]
   });
+  const [poll, setPoll] = useState(null);
+  const [loading, setLoading] = useState(editing);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const questionsEditable = !editing || (poll?.responseCount || 0) === 0;
   const canRemoveQuestion = form.questions.length > 1;
   const builderStats = useMemo(
     () => ({
@@ -62,6 +61,37 @@ export default function CreatePollPage() {
     }),
     [form.questions]
   );
+
+  useEffect(() => {
+    if (!editing) return undefined;
+
+    let active = true;
+
+    async function loadPoll() {
+      try {
+        const data = await request(`/polls/${pollId}`);
+        if (!active) return;
+
+        setPoll(data.poll);
+        setForm({
+          title: data.poll.title,
+          description: data.poll.description || "",
+          responseMode: data.poll.responseMode,
+          expiresAt: toDateTimeInput(data.poll.expiresAt),
+          questions: data.poll.questions.map(questionFromApi)
+        });
+      } catch (apiError) {
+        if (active) setError(apiError.message);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadPoll();
+    return () => {
+      active = false;
+    };
+  }, [editing, pollId]);
 
   const questionIssues = useMemo(
     () =>
@@ -159,7 +189,7 @@ export default function CreatePollPage() {
       return;
     }
 
-    if (questionIssues.length) {
+    if (questionsEditable && questionIssues.length) {
       setError(questionIssues[0]);
       return;
     }
@@ -167,16 +197,21 @@ export default function CreatePollPage() {
     setSaving(true);
     try {
       const payload = {
-        ...form,
+        title: form.title,
+        description: form.description,
+        responseMode: form.responseMode,
         expiresAt: new Date(form.expiresAt).toISOString(),
-        questions: form.questions.map((question) => ({
-          ...question,
-          options: question.options.filter((option) => option.label.trim())
-        }))
+        ...(questionsEditable
+          ? {
+              questions: form.questions.map((question) => ({
+                ...question,
+                options: question.options.filter((option) => option.label.trim())
+              }))
+            }
+          : {})
       };
-      const data = await request("/polls", {
-        method: "POST",
-        token,
+      const data = await request(editing ? `/polls/${pollId}` : "/polls", {
+        method: editing ? "PATCH" : "POST",
         body: payload
       });
       navigate(`/polls/${data.poll.id}/analytics`);
@@ -185,6 +220,10 @@ export default function CreatePollPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (loading) {
+    return <div className="panel empty-state">Loading poll...</div>;
   }
 
   return (
@@ -200,8 +239,12 @@ export default function CreatePollPage() {
             <ArrowLeft size={17} />
             <span>Dashboard</span>
           </Link>
-          <h1>Create a poll</h1>
-          <p>Shape the response flow, choose identity rules, and set a clear closing window.</p>
+          <h1>{editing ? "Edit poll" : "Create a poll"}</h1>
+          <p>
+            {editing
+              ? "Refine the poll settings before publishing the final result."
+              : "Shape the response flow, choose identity rules, and set a clear closing window."}
+          </p>
         </div>
         <div className="builder-summary" aria-label="Poll draft summary">
           <span>
@@ -224,6 +267,11 @@ export default function CreatePollPage() {
           <h2>Poll settings</h2>
 
           {error && <div className="alert alert-error">{error}</div>}
+          {!questionsEditable && (
+            <div className="alert auth-required">
+              Questions are locked after responses arrive. You can still update title, description, mode and expiry.
+            </div>
+          )}
 
           <label className="field">
             <span>Title</span>
@@ -282,7 +330,7 @@ export default function CreatePollPage() {
 
           <button className="button button-wide" disabled={saving}>
             <Save size={18} />
-            <span>{saving ? "Saving..." : "Save poll"}</span>
+            <span>{saving ? "Saving..." : editing ? "Update poll" : "Save poll"}</span>
           </button>
         </aside>
 
@@ -307,13 +355,14 @@ export default function CreatePollPage() {
                     placeholder="What should we ask?"
                     maxLength={240}
                     required
+                    disabled={!questionsEditable}
                   />
                 </div>
                 <button
                   className="icon-button"
                   type="button"
                   onClick={() => removeQuestion(questionIndex)}
-                  disabled={!canRemoveQuestion}
+                  disabled={!questionsEditable || !canRemoveQuestion}
                 >
                   <Trash2 size={18} />
                   <span className="sr-only">Remove question</span>
@@ -327,6 +376,7 @@ export default function CreatePollPage() {
                   onChange={(event) =>
                     updateQuestion(questionIndex, { required: event.target.checked })
                   }
+                  disabled={!questionsEditable}
                 />
                 <span>
                   <Check size={16} />
@@ -346,12 +396,13 @@ export default function CreatePollPage() {
                       placeholder={`Option ${optionIndex + 1}`}
                       maxLength={140}
                       required={optionIndex < 2}
+                      disabled={!questionsEditable}
                     />
                     <button
                       className="icon-button"
                       type="button"
                       onClick={() => removeOption(questionIndex, optionIndex)}
-                      disabled={question.options.length <= 2}
+                      disabled={!questionsEditable || question.options.length <= 2}
                     >
                       <Trash2 size={16} />
                       <span className="sr-only">Remove option</span>
@@ -364,6 +415,7 @@ export default function CreatePollPage() {
                 className="button button-quiet"
                 type="button"
                 onClick={() => addOption(questionIndex)}
+                disabled={!questionsEditable}
               >
                 <CirclePlus size={17} />
                 <span>Add option</span>
@@ -371,7 +423,12 @@ export default function CreatePollPage() {
             </motion.article>
           ))}
 
-          <button className="button button-secondary add-question" type="button" onClick={addQuestion}>
+          <button
+            className="button button-secondary add-question"
+            type="button"
+            onClick={addQuestion}
+            disabled={!questionsEditable}
+          >
             <CirclePlus size={18} />
             <span>Add question</span>
           </button>

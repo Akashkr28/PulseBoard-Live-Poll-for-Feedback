@@ -7,9 +7,35 @@ export const SOCKET_URL =
   apiUrl?.replace(/\/api$/, "") ||
   "http://localhost:4000";
 
-export function createSocket() {
-  return io(SOCKET_URL, {
+export function createSocket({ room } = {}) {
+  const socket = io(SOCKET_URL, {
     transports: ["websocket", "polling"],
-    autoConnect: true
+    autoConnect: true,
+    withCredentials: true
   });
+
+  if (room) {
+    const joinRoom = () => socket.emit("poll:join", room);
+    socket.on("connect", joinRoom);
+
+    if (socket.connected) {
+      joinRoom();
+    }
+  }
+
+  return socket;
+}
+
+export function createDebouncedHandler(callback, delay = 180) {
+  let timer = 0;
+
+  return {
+    handle(value) {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => callback(value), delay);
+    },
+    cancel() {
+      window.clearTimeout(timer);
+    }
+  };
 }

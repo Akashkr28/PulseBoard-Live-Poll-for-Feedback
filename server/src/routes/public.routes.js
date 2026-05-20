@@ -4,6 +4,7 @@ import { Poll } from "../models/Poll.js";
 import { Response } from "../models/Response.js";
 import { buildPollAnalytics } from "../utils/analytics.js";
 import { asyncHandler, httpError } from "../utils/http.js";
+import { parseBody, responsePayloadSchema } from "../utils/validation.js";
 
 const router = express.Router();
 
@@ -112,6 +113,7 @@ router.post(
   "/:publicId/responses",
   optionalAuth,
   asyncHandler(async (req, res) => {
+    const payload = parseBody(responsePayloadSchema, req.body);
     const poll = await Poll.findOne({ publicId: req.params.publicId });
 
     if (!poll) {
@@ -141,7 +143,7 @@ router.post(
       }
     }
 
-    const answers = validateAnswers(poll, req.body.answers);
+    const answers = validateAnswers(poll, payload.answers);
     const response = await Response.create({
       poll: poll._id,
       respondent: poll.responseMode === "authenticated" ? req.user._id : null,

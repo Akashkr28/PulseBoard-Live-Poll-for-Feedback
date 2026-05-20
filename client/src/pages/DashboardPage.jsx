@@ -2,6 +2,7 @@ import {
   BarChart3,
   Clipboard,
   Clock3,
+  Pencil,
   LayoutDashboard,
   Plus,
   RadioTower,
@@ -14,17 +15,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import StatusPill from "../components/StatusPill.jsx";
 import { useAuth } from "../context/useAuth.js";
+import { copyToClipboard } from "../lib/clipboard.js";
+import { formatDate } from "../lib/dates.js";
 import { publicPollLink, request } from "../lib/api.js";
 
-function formatDate(value) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
-}
-
 export default function DashboardPage() {
-  const { token, user } = useAuth();
+  const { user } = useAuth();
   const [polls, setPolls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -58,7 +54,7 @@ export default function DashboardPage() {
 
     async function loadPolls() {
       try {
-        const data = await request("/polls", { token });
+        const data = await request("/polls");
         if (active) setPolls(data.polls);
       } catch (apiError) {
         if (active) setError(apiError.message);
@@ -71,10 +67,10 @@ export default function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, []);
 
   async function copyLink(publicId) {
-    await navigator.clipboard.writeText(publicPollLink(publicId));
+    await copyToClipboard(publicPollLink(publicId));
     setCopiedId(publicId);
     window.setTimeout(() => setCopiedId(""), 1600);
   }
@@ -85,8 +81,7 @@ export default function DashboardPage() {
 
     try {
       await request(`/polls/${pollId}`, {
-        method: "DELETE",
-        token
+        method: "DELETE"
       });
       setPolls((currentPolls) => currentPolls.filter((poll) => poll.id !== pollId));
       setConfirmingDeleteId("");
@@ -212,6 +207,12 @@ export default function DashboardPage() {
                   <BarChart3 size={17} />
                   <span>Analytics</span>
                 </Link>
+                {!poll.isPublished && (
+                  <Link className="button button-secondary" to={`/polls/${poll.id}/edit`}>
+                    <Pencil size={17} />
+                    <span>Edit</span>
+                  </Link>
+                )}
                 <button
                   className="button button-quiet"
                   type="button"

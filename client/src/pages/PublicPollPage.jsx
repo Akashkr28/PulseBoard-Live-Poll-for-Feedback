@@ -5,18 +5,12 @@ import { Link, useParams } from "react-router-dom";
 import ResultSummary from "../components/ResultSummary.jsx";
 import { useAuth } from "../context/useAuth.js";
 import { request } from "../lib/api.js";
+import { formatDate } from "../lib/dates.js";
 import { createSocket } from "../lib/socket.js";
-
-function formatDate(value) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(new Date(value));
-}
 
 export default function PublicPollPage() {
   const { publicId } = useParams();
-  const { token, user } = useAuth();
+  const { user } = useAuth();
   const [poll, setPoll] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [answers, setAnswers] = useState({});
@@ -61,8 +55,7 @@ export default function PublicPollPage() {
   }, [publicId]);
 
   useEffect(() => {
-    const socket = createSocket();
-    socket.emit("poll:join", publicId);
+    const socket = createSocket({ room: publicId });
     socket.on("poll:submitted", (event) => {
       if (event.publicId === publicId) setLiveCount(event.totalResponses);
     });
@@ -79,6 +72,29 @@ export default function PublicPollPage() {
               }
             : current
         );
+      }
+    });
+    socket.on("poll:updated", (event) => {
+      if (event.publicId === publicId) {
+        setPoll((current) =>
+          current
+            ? {
+                ...current,
+                title: event.poll.title,
+                description: event.poll.description,
+                responseMode: event.poll.responseMode,
+                expiresAt: event.poll.expiresAt,
+                expired: event.poll.expired,
+                active: event.poll.active,
+                responseCount: event.poll.responseCount
+              }
+            : current
+        );
+      }
+    });
+    socket.on("poll:deleted", (event) => {
+      if (event.publicId === publicId) {
+        setError("This poll is no longer available.");
       }
     });
 
@@ -119,7 +135,6 @@ export default function PublicPollPage() {
       };
       const data = await request(`/public/polls/${publicId}/responses`, {
         method: "POST",
-        token,
         body: payload
       });
       setSubmitted(true);

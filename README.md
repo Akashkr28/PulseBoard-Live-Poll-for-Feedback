@@ -4,8 +4,9 @@ PulseBoard is a full-stack live polling and feedback platform. Creators can buil
 
 ## Features
 
-- Email/password authentication with protected creator routes.
+- Email/password authentication with httpOnly cookie sessions, CSRF protection and protected creator routes.
 - Poll builder with multiple single-choice questions.
+- Poll editing before responses arrive, plus settings edits before publishing.
 - Mandatory and optional question handling on both frontend and backend.
 - Anonymous and authenticated response modes.
 - Expiry checks that stop late responses automatically.
@@ -13,11 +14,12 @@ PulseBoard is a full-stack live polling and feedback platform. Creators can buil
 - Creator analytics with total responses, question summaries, option counts, completion rate and participation split.
 - Socket.io updates for live response counts and analytics refreshes.
 - Publish flow so final results are visible publicly on the original poll URL.
+- Zod request validation, rate limiting and focused backend tests.
 
 ## Tech Stack
 
-- Frontend: React, Vite, React Router, Socket.io Client, Lucide icons.
-- Backend: Node.js, Express, MongoDB, Mongoose, JWT, bcrypt, Socket.io.
+- Frontend: React, Vite, React Router, Socket.io Client, Recharts, Framer Motion, Lucide icons.
+- Backend: Node.js, Express, MongoDB, Mongoose, JWT, bcrypt, Socket.io, Zod, express-rate-limit.
 - Repo style: one repository with `client` and `server` workspaces.
 
 ## Project Structure
@@ -51,6 +53,7 @@ PORT=4000
 MONGO_URI=mongodb://127.0.0.1:27017/pulseboard
 JWT_SECRET=use-a-long-random-secret
 CLIENT_URL=http://localhost:5173
+COOKIE_SECURE=false
 ```
 
 Run the full app:
@@ -66,16 +69,28 @@ The frontend runs at `http://localhost:5173` and the API runs at `http://localho
 ```txt
 POST   /api/auth/register
 POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/auth/csrf
 GET    /api/auth/me
 
 GET    /api/polls
 POST   /api/polls
 GET    /api/polls/:id
+PATCH  /api/polls/:id
 GET    /api/polls/:id/analytics
 PATCH  /api/polls/:id/publish
+DELETE /api/polls/:id
 
 GET    /api/public/polls/:publicId
 POST   /api/public/polls/:publicId/responses
+```
+
+Run checks:
+
+```bash
+npm run lint
+npm run test
+npm run build
 ```
 
 ## Deployment Notes
@@ -117,6 +132,7 @@ Add these Render environment variables:
 MONGO_URI=<MongoDB Atlas URI>
 JWT_SECRET=<long random secret>
 CLIENT_URL=https://<your-vercel-app>.vercel.app
+COOKIE_SECURE=true
 NODE_VERSION=20
 ```
 
@@ -130,6 +146,12 @@ Check it:
 
 ```txt
 https://<your-render-service>.onrender.com/api/health
+```
+
+The API root should also identify itself as PulseBoard:
+
+```txt
+https://<your-render-service>.onrender.com/
 ```
 
 ### 3. Deploy Frontend on Vercel

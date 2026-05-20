@@ -1,4 +1,5 @@
 export const API_URL = import.meta.env.VITE_API_URL || "/api";
+let csrfToken = "";
 
 export class ApiError extends Error {
   constructor(message, status, details) {
@@ -11,23 +12,41 @@ export class ApiError extends Error {
 
 export async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
+  const method = options.method || "GET";
+  const usesCsrf = !["GET", "HEAD"].includes(method.toUpperCase());
 
   if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (options.token) {
-    headers.set("Authorization", `Bearer ${options.token}`);
+  if (usesCsrf) {
+    csrfToken = csrfToken || (await fetchCsrfToken());
+    headers.set("X-CSRF-Token", csrfToken);
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    method: options.method || "GET",
+  let response = await fetch(`${API_URL}${path}`, {
+    method,
     headers,
+    credentials: "include",
     body:
       options.body && !(options.body instanceof FormData)
         ? JSON.stringify(options.body)
         : options.body
   });
+
+  if (response.status === 403 && usesCsrf && !options.retryingCsrf) {
+    csrfToken = await fetchCsrfToken();
+    headers.set("X-CSRF-Token", csrfToken);
+    response = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      credentials: "include",
+      body:
+        options.body && !(options.body instanceof FormData)
+          ? JSON.stringify(options.body)
+          : options.body
+    });
+  }
 
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("application/json")
@@ -47,6 +66,23 @@ export async function request(path, options = {}) {
   }
 
   return payload;
+}
+
+async function fetchCsrfToken() {
+  const response = await fetch(`${API_URL}/auth/csrf`, {
+    credentials: "include"
+  });
+  const payload = await response.json();
+
+  if (!response.ok || !payload.csrfToken) {
+    throw new ApiError("Could not start a secure session.", response.status);
+  }
+
+  return payload.csrfToken;
+}
+
+export function clearCsrfToken() {
+  csrfToken = "";
 }
 
 export function publicPollLink(publicId) {

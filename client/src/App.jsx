@@ -31,6 +31,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/polls/new" element={<CreatePollPage />} />
+          <Route path="/polls/:pollId/edit" element={<CreatePollPage />} />
           <Route path="/polls/:pollId/analytics" element={<AnalyticsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
